@@ -26,6 +26,7 @@
   .wrap { overflow:auto; background:var(--card); border:1px solid var(--line); border-radius: 10px; }
   table { width:100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+  #standards td { white-space: normal; min-width: 140px; }
   th { position: sticky; top: 0; background: #fafafa; font-weight: 600; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   tr.danger td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
@@ -36,11 +37,14 @@
 <body>
 <main>
   <h1>CPC 异常门店看板</h1>
-  <p>按企微《麦悠悠·推广通》的「推广-预算」当前本月数。获客单价高于 55 元，或者本月订单为 0 且有花费，都进名单。MUU 不进。花费和订单都是 0 的店没有投放，不进名单。</p>
-  <p class="muted">全表 205 家，花费合计 198,411 元，订单 5,348。大盘获客单价 37.10 元。名单 29 家，剩余按 11月20日计算。江镇新都汇、川沙地铁站、128科创园、德宏路本月单价已降到 55 及以下，退出。</p>
+  <p>获客单价高于 55 元，或者本月订单为 0 且花费大于 0，进入固定名单，并按处理阶段分档。观测期内不跳档，期满当天才能进入下一档或退出。MUU 不进。花费和订单都是 0 的店不进名单。</p>
+  <p class="muted">全表 205 家，花费合计 198,411 元，订单 5,348。大盘获客单价 37.10 元。名单 29 家，剩余按 11月20日计算。11月16日进档的 0 订单、第二批和东门还剩 3 天；11月20日新进的第二批还剩 7 天；第一批、新店、换货盘还剩 17 天。梅林卓悦汇显示待复业。</p>
   <div class="stats" id="stats"></div>
-  <h2>辅助因素：本月 CTR、CVR</h2>
-  <p>CTR = 点击 ÷ 曝光，CVR = 订单 ÷ 点击。辅助线是全表合计：CTR 7.21%，CVR 7.62%。低于线记偏低，不改变进档和换档。</p>
+  <h2>分级标准</h2>
+  <p>换档只发生在复盘日。11月16日进档的，7 天复盘日是 11月23日，21 天复盘日是 12月7日。</p>
+  <div class="wrap" style="margin-bottom:16px"><table id="standards"><thead><tr><th>档</th><th>进入标准</th><th>观测期</th><th>期满当天</th></tr></thead><tbody></tbody></table></div>
+  <h2>辅助因素：本周 CTR、CVR</h2>
+  <p>点某一档，只看这一档的门店、剩余天数，以及本周 CTR、CVR 是否低于辅助线。CTR = 点击 ÷ 曝光，CVR = 订单 ÷ 点击，取预算表同一行。辅助线是全表合计：CTR 7.21%，CVR 7.62%。低于线记偏低，不决定进名单，也不决定换档。变动不足 0.5 个百分点记持平。</p>
   <div class="stats" id="auxstats"></div>
   <h2>按档查看</h2>
   <div class="pills" id="grades"></div>
@@ -52,8 +56,8 @@
       <thead>
         <tr>
           <th>档</th><th>门店</th><th>片区</th>
-          <th class="num">获客单价</th><th class="num">花费</th><th class="num">订单</th>
-          <th class="num">CTR</th><th class="num">CVR</th><th>辅助</th><th class="num">剩余</th>
+          <th class="num">获客单价</th><th class="num">本周 CTR</th><th class="num">本周 CVR</th>
+          <th>辅助</th><th class="num">剩余</th>
         </tr>
       </thead>
       <tbody id="body"></tbody>
@@ -66,11 +70,11 @@ const AS_OF = "2026-11-20";
 const CTR_LINE = 7.21;
 const CVR_LINE = 7.62;
 const RULES = {
-  "0订单": ["本月订单为 0，且本月花费大于 0。花费和订单都是 0 的店没有投放，不进名单。", "观测 7 天。", "仍是 0 订单再计 7 天。已有订单且单价高于 55，按有没有动作进第一批或第二批。单价降到 55 及以下则退出。"],
-  "第二批": ["在名单内，日报没有已落地的价格或项目动作。预算表新进的店先放在这一档。", "观测 7 天。期内即使已经有动作，也等到复盘日再进第一批。", "有动作进第一批。仍无动作，留在第二批再计 7 天。"],
-  "第一批": ["价格或项目动作已经落地。", "观测 21 天。第 15 天可以做前后对比，第 21 天才换档。", "本月单价不超过 55 元则退出。仍高于 55 元，退回第二批再计 7 天。"],
-  "单独口径": ["跨区服务商。本次是东门店。", "时钟与第二批相同，本次 7 天。", "服务商落地动作后进第一批。换档后仍不按单一片区考核。"],
-  "不考核": ["停业，或新店、换货盘未满一个完整周期。", "停业直到复业。新店和换货盘观测 21 天。", "期满后按当天单价重判。"]
+  "0订单": ["本月订单为 0，且本月花费大于 0。单价栏写「0订单」，不把花费当成获客单价。", "观测 7 天，用来等门店重新出单。7 天内即使已经有订单，也等到复盘日再换档。", "仍然没有订单，再观测 7 天。已经有订单且单价高于 55，有动作进第一批，没有动作进第二批。单价降到 55 及以下，退出。"],
+  "第二批": ["在名单内，日报没有已落地的价格或项目动作（零提及，或只点到店名）。预算表新进的店先放这一档。", "观测 7 天。观测期从进档日的次日起算，期内不跳档。", "已落地动作进入第一批，新进档日是动作落地日，改为 21 天。仍无动作，留在第二批，新进档日是当天，再观测 7 天，由片区负责人接手。"],
+  "第一批": ["价格或项目动作已经落地。", "观测 21 天。第 15 天可以做前后 15 天对比，第 21 天第三周才换档。", "本月获客单价降到 55 元及以下，退出。仍然高于 55 元，退回第二批，新进档日是当天，再观测 7 天，换一个业务动作。"],
+  "单独口径": ["跨区服务商，本次为东门店。本周单价标成停投，仍留在名单里，观测期照走。", "与第二批相同，本次 7 天。", "出口与第二批相同。换档后仍由服务商-张道恒负责，不按单一片区考核。"],
+  "不考核": ["停业；或新店、换货盘未满一个完整周期。", "停业直到复业。新店和换货盘 21 天。", "复业或满 21 天后按当天单价重判：不超过 55 退出，高于 55 且无动作进第二批，已有动作进第一批。"]
 };
 const ROWS = [
   {"grade":"0订单","store":"青浦宝龙珑寓店","area":"自营-牛晓东","month":null,"spend":290,"orders":0,"ctr":10.06,"cvr":0,"entry":"2026-11-16","observeDays":7},
@@ -202,15 +206,17 @@ function render() {
       <td>${row.grade}</td>
       <td>${row.store}</td>
       <td>${row.area}</td>
-      <td class="num">${row.month == null ? "0订单" : row.month.toFixed(1)}</td>
-      <td class="num">${money(row.spend)}</td>
-      <td class="num">${row.orders}</td>
+      <td class="num">${row.month == null ? "0订单" : (row.store === "东门店" ? row.month.toFixed(1) + "（本周停投）" : row.month.toFixed(1))}</td>
       <td class="num">${row.ctr == null ? "—" : pct(row.ctr)}</td>
       <td class="num">${row.cvr == null ? "—" : pct(row.cvr)}</td>
       <td>${auxOf(row)}</td>
       <td class="num">${remainText(row)}</td>
     </tr>`).join("");
 }
+
+document.querySelector("#standards tbody").innerHTML = ["第二批","第一批","单独口径","不考核","0订单"].map(g =>
+  `<tr><td>${g}</td><td>${RULES[g][0]}</td><td>${RULES[g][1]}</td><td>${RULES[g][2]}</td></tr>`
+).join("");
 
 document.getElementById("stats").innerHTML = [
   ["2", "0订单，有花费", "danger"],
