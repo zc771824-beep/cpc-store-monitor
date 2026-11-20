@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>麦悠悠 CPC 异常门店看板</title>
+<style>
+  :root { color-scheme: light; --ink:#1c1c1c; --muted:#5c5c5c; --line:#e4e4e4; --bg:#f6f6f4; --card:#fff; --danger:#b42318; --warn:#b54708; --info:#175cd3; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: "PingFang SC", "Noto Sans SC", sans-serif; color:var(--ink); background:var(--bg); }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 64px; }
+  h1 { font-size: 28px; margin: 0 0 8px; font-weight: 650; }
+  h2 { font-size: 18px; margin: 28px 0 8px; }
+  p { margin: 0 0 8px; line-height: 1.55; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .stats { display:flex; flex-wrap:wrap; gap: 12px; margin: 16px 0; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius: 10px; padding: 12px 16px; min-width: 120px; }
+  .stat b { display:block; font-size: 22px; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .stat.danger b { color: var(--danger); }
+  .stat.warn b { color: var(--warn); }
+  .pills { display:flex; flex-wrap:wrap; gap: 8px; margin: 8px 0; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+  button.on { background: #1c1c1c; color: #fff; border-color: #1c1c1c; }
+  .note { background:#fff; border:1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 10px 0; }
+  .wrap { overflow:auto; background:var(--card); border:1px solid var(--line); border-radius: 10px; }
+  table { width:100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: left; }
+  th { position: sticky; top: 0; background: #fafafa; font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.danger td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+  tr.warn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+  tr.info td:first-child { box-shadow: inset 3px 0 0 var(--info); }
+</style>
+</head>
+<body>
+<main>
+  <h1>CPC 异常门店看板</h1>
+  <p>按企微《麦悠悠·推广通》的「推广-预算」当前本月数。获客单价高于 55 元，或者本月订单为 0 且有花费，都进名单。MUU 不进。花费和订单都是 0 的店没有投放，不进名单。</p>
+  <p class="muted">全表 205 家，花费合计 198,411 元，订单 5,348。大盘获客单价 37.10 元。名单 29 家，剩余按 11月20日计算。江镇新都汇、川沙地铁站、128科创园、德宏路本月单价已降到 55 及以下，退出。</p>
+  <div class="stats" id="stats"></div>
+  <h2>辅助因素：本月 CTR、CVR</h2>
+  <p>CTR = 点击 ÷ 曝光，CVR = 订单 ÷ 点击。辅助线是全表合计：CTR 7.21%，CVR 7.62%。低于线记偏低，不改变进档和换档。</p>
+  <div class="stats" id="auxstats"></div>
+  <h2>按档查看</h2>
+  <div class="pills" id="grades"></div>
+  <div class="pills" id="aux"></div>
+  <div class="note" id="note"></div>
+  <p class="muted" id="count"></p>
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>档</th><th>门店</th><th>片区</th>
+          <th class="num">获客单价</th><th class="num">花费</th><th class="num">订单</th>
+          <th class="num">CTR</th><th class="num">CVR</th><th>辅助</th><th class="num">剩余</th>
+        </tr>
+      </thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+  <p class="muted">来源：企微「推广-预算」，读取日 2026-11-20。MUU 虹桥天地单价 112.9 元，不进麦悠悠名单。</p>
+</main>
+<script>
+const AS_OF = "2026-11-20";
+const CTR_LINE = 7.21;
+const CVR_LINE = 7.62;
+const RULES = {
+  "0订单": ["本月订单为 0，且本月花费大于 0。花费和订单都是 0 的店没有投放，不进名单。", "观测 7 天。", "仍是 0 订单再计 7 天。已有订单且单价高于 55，按有没有动作进第一批或第二批。单价降到 55 及以下则退出。"],
+  "第二批": ["在名单内，日报没有已落地的价格或项目动作。预算表新进的店先放在这一档。", "观测 7 天。期内即使已经有动作，也等到复盘日再进第一批。", "有动作进第一批。仍无动作，留在第二批再计 7 天。"],
+  "第一批": ["价格或项目动作已经落地。", "观测 21 天。第 15 天可以做前后对比，第 21 天才换档。", "本月单价不超过 55 元则退出。仍高于 55 元，退回第二批再计 7 天。"],
+  "单独口径": ["跨区服务商。本次是东门店。", "时钟与第二批相同，本次 7 天。", "服务商落地动作后进第一批。换档后仍不按单一片区考核。"],
+  "不考核": ["停业，或新店、换货盘未满一个完整周期。", "停业直到复业。新店和换货盘观测 21 天。", "期满后按当天单价重判。"]
+};
+const ROWS = [
+  {"grade":"0订单","store":"青浦宝龙珑寓店","area":"自营-牛晓东","month":null,"spend":290,"orders":0,"ctr":10.06,"cvr":0,"entry":"2026-11-16","observeDays":7},
+  {"grade":"0订单","store":"汇金新地商业广场店","area":"服务商-白永飞","month":null,"spend":78,"orders":0,"ctr":6.62,"cvr":0,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"赵重公路店","area":"上海一区-牛晓东","month":119.1,"spend":1071,"orders":9,"ctr":11.12,"cvr":1.84,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"博兴路店","area":"上海五区-王帝豪","month":89.6,"spend":1882,"orders":21,"ctr":8.52,"cvr":2.26,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"上海信息技术大厦店","area":"上海一区-牛晓东","month":82.9,"spend":1907,"orders":23,"ctr":9.44,"cvr":2.67,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"宝安华强广场店","area":"深圳一区-李进","month":68.3,"spend":3007,"orders":44,"ctr":6.88,"cvr":3.29,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"泗泾大橘店","area":"上海一区-牛晓东","month":62.8,"spend":2010,"orders":32,"ctr":6.23,"cvr":3.73,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"八佰伴店","area":"上海六区-陈久永","month":60.8,"spend":2433,"orders":40,"ctr":6.55,"cvr":3.61,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"慧华里店","area":"上海五区-王帝豪","month":59.7,"spend":1373,"orders":23,"ctr":6.13,"cvr":5.44,"entry":"2026-11-20","observeDays":7},
+  {"grade":"第二批","store":"年家浜路店","area":"自营-杨斌","month":59.3,"spend":1305,"orders":22,"ctr":5.38,"cvr":4.07,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"洲海路地铁站店","area":"上海五区-王帝豪","month":58.6,"spend":1230,"orders":21,"ctr":5.27,"cvr":5.45,"entry":"2026-11-20","observeDays":7},
+  {"grade":"第二批","store":"芦恒路店","area":"上海四区-杨斌","month":57.1,"spend":1426,"orders":25,"ctr":7.27,"cvr":5.35,"entry":"2026-11-16","observeDays":7},
+  {"grade":"第二批","store":"下沙宝龙店","area":"杭州-汤琇棋","month":56.6,"spend":2036,"orders":36,"ctr":7.8,"cvr":4.32,"entry":"2026-11-20","observeDays":7},
+  {"grade":"第二批","store":"上海春城店","area":"自营-杨斌","month":56.1,"spend":1010,"orders":18,"ctr":6.23,"cvr":4.23,"entry":"2026-11-20","observeDays":7},
+  {"grade":"第二批","store":"月明路店","area":"服务商-白永飞","month":55.7,"spend":1280,"orders":23,"ctr":7.8,"cvr":4.17,"entry":"2026-11-20","observeDays":7},
+  {"grade":"第二批","store":"金地城店","area":"上海四区-杨斌","month":55.4,"spend":2214,"orders":40,"ctr":6.61,"cvr":8.93,"entry":"2026-11-20","observeDays":7},
+  {"grade":"第二批","store":"育秀路店","area":"上海六区-陈久永","month":55.4,"spend":1218,"orders":22,"ctr":7.72,"cvr":4.7,"entry":"2026-11-20","observeDays":7},
+  {"grade":"第一批","store":"新凯家园店","area":"上海一区-牛晓东","month":91.3,"spend":1918,"orders":21,"ctr":8,"cvr":2.22,"entry":"2026-11-16","observeDays":21},
+  {"grade":"第一批","store":"中科路店","area":"服务商-白永飞","month":79.8,"spend":2393,"orders":30,"ctr":5.41,"cvr":2.75,"entry":"2026-11-16","observeDays":21},
+  {"grade":"第一批","store":"麦多生活广场店","area":"上海四区-杨斌","month":76.5,"spend":1224,"orders":16,"ctr":5.14,"cvr":3.33,"entry":"2026-11-16","observeDays":21},
+  {"grade":"第一批","store":"汇锦里店","area":"上海一区-牛晓东","month":71.5,"spend":2430,"orders":34,"ctr":10.61,"cvr":3.02,"entry":"2026-11-16","observeDays":21},
+  {"grade":"第一批","store":"成山路店","area":"服务商-白永飞","month":59.6,"spend":1430,"orders":24,"ctr":9.91,"cvr":3.2,"entry":"2026-11-16","observeDays":21},
+  {"grade":"第一批","store":"266新天地店","area":"上海六区-陈久永","month":56.9,"spend":1480,"orders":26,"ctr":4.63,"cvr":3.99,"entry":"2026-11-16","observeDays":21},
+  {"grade":"第一批","store":"新国际博览汇店","area":"上海五区-王帝豪","month":55,"spend":1321,"orders":24,"ctr":8.91,"cvr":3.44,"entry":"2026-11-16","observeDays":21},
+  {"grade":"单独口径","store":"东门店","area":"服务商-张道恒","month":124.7,"spend":499,"orders":4,"ctr":8.19,"cvr":2.05,"entry":"2026-11-16","observeDays":7},
+  {"grade":"不考核","store":"宝安壹方城店","area":"深圳一区-李进","month":93.7,"spend":2718,"orders":29,"ctr":7.22,"cvr":2.6,"entry":"2026-11-16","observeDays":21},
+  {"grade":"不考核","store":"梅林卓悦汇店","area":"深圳一区-李进","month":74.9,"spend":1647,"orders":22,"ctr":8.07,"cvr":3.43,"entry":"2026-11-16","observeDays":null},
+  {"grade":"不考核","store":"壹方天地店","area":"深圳一区-李进","month":73.9,"spend":1404,"orders":19,"ctr":8.04,"cvr":3.06,"entry":"2026-11-16","observeDays":21},
+  {"grade":"不考核","store":"昆山金鹰漫街店","area":"昆山城合-白永飞","month":56.9,"spend":2846,"orders":50,"ctr":6.87,"cvr":3.64,"entry":"2026-11-16","observeDays":21}
+];
+
+function parseIso(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+function addDays(iso, days) {
+  const dt = new Date(parseIso(iso));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const y = dt.getUTCFullYear();
+  const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(dt.getUTCDate()).padStart(2, "0");
+  return y + "-" + mo + "-" + da;
+}
+function dayGap(from, to) {
+  return Math.round((parseIso(to) - parseIso(from)) / 86400000);
+}
+function remainOf(row) {
+  if (row.observeDays == null) return null;
+  return dayGap(AS_OF, addDays(row.entry, row.observeDays));
+}
+function remainText(row) {
+  const n = remainOf(row);
+  if (n == null) return "待复业";
+  if (n <= 0) return "今天复盘";
+  return n + " 天";
+}
+function auxOf(row) {
+  if (row.ctr == null || row.cvr == null) return "无数据";
+  const lowCtr = row.ctr < CTR_LINE;
+  const lowCvr = row.cvr < CVR_LINE;
+  if (lowCtr && lowCvr) return "双低";
+  if (lowCtr) return "CTR偏低";
+  if (lowCvr) return "CVR偏低";
+  return "正常";
+}
+function tone(row) {
+  const flag = auxOf(row);
+  if (flag === "双低" || flag === "CVR偏低") return "danger";
+  if (flag === "CTR偏低") return "warn";
+  if (row.grade === "第一批") return "warn";
+  if (row.grade === "单独口径" || row.grade === "不考核") return "info";
+  return "danger";
+}
+function pct(n) { return n.toFixed(2) + "%"; }
+function money(n) { return Math.round(n).toLocaleString("zh-CN"); }
+
+let grade = "全部";
+let aux = "全部";
+
+function count(g) { return ROWS.filter(r => r.grade === g).length; }
+
+function render() {
+  const grades = [
+    ["全部", "全部 " + ROWS.length],
+    ["0订单", "0订单 " + count("0订单")],
+    ["第二批", "第二批 " + count("第二批")],
+    ["第一批", "第一批 " + count("第一批")],
+    ["单独口径", "单独口径 " + count("单独口径")],
+    ["不考核", "不考核 " + count("不考核")]
+  ];
+  document.getElementById("grades").innerHTML = grades.map(([id, label]) =>
+    `<button class="${grade === id ? "on" : ""}" data-kind="grade" data-id="${id}">${label}</button>`
+  ).join("");
+  const auxes = [
+    ["全部", "辅助不限"],
+    ["CTR偏低", "CTR 低于 7.21%"],
+    ["CVR偏低", "CVR 低于 7.62%"],
+    ["双低", "两项都低"]
+  ];
+  document.getElementById("aux").innerHTML = auxes.map(([id, label]) =>
+    `<button class="${aux === id ? "on" : ""}" data-kind="aux" data-id="${id}">${label}</button>`
+  ).join("");
+
+  const shown = ROWS.filter(row => {
+    if (grade !== "全部" && row.grade !== grade) return false;
+    if (aux === "全部") return true;
+    if (row.ctr == null || row.cvr == null) return false;
+    if (aux === "CTR偏低") return row.ctr < CTR_LINE;
+    if (aux === "CVR偏低") return row.cvr < CVR_LINE;
+    return auxOf(row) === "双低";
+  }).sort((a, b) => {
+    const ar = remainOf(a); const br = remainOf(b);
+    const ak = ar == null ? 999 : ar;
+    const bk = br == null ? 999 : br;
+    return ak - bk || (b.month ?? -1) - (a.month ?? -1);
+  });
+
+  const note = document.getElementById("note");
+  if (RULES[grade]) {
+    note.innerHTML = RULES[grade].map(t => `<p>${t}</p>`).join("");
+  } else {
+    note.innerHTML = "<p class='muted'>新进的 7 家是慧华里、洲海路地铁站、下沙宝龙、上海春城、月明路、金地城、育秀路，11月20日进第二批，还剩 7 天。原先第二批和 0 订单、东门还剩 3 天。第一批和不考核里的新店、换货盘还剩 17 天。</p>";
+  }
+  document.getElementById("count").textContent = shown.length + " 家。上面两排可以同时筛档位和 CTR、CVR。";
+  document.getElementById("body").innerHTML = shown.map(row => `
+    <tr class="${tone(row)}">
+      <td>${row.grade}</td>
+      <td>${row.store}</td>
+      <td>${row.area}</td>
+      <td class="num">${row.month == null ? "0订单" : row.month.toFixed(1)}</td>
+      <td class="num">${money(row.spend)}</td>
+      <td class="num">${row.orders}</td>
+      <td class="num">${row.ctr == null ? "—" : pct(row.ctr)}</td>
+      <td class="num">${row.cvr == null ? "—" : pct(row.cvr)}</td>
+      <td>${auxOf(row)}</td>
+      <td class="num">${remainText(row)}</td>
+    </tr>`).join("");
+}
+
+document.getElementById("stats").innerHTML = [
+  ["2", "0订单，有花费", "danger"],
+  ["15", "第二批", "danger"],
+  ["7", "第一批", "warn"],
+  ["37.10", "大盘单价（元）", ""]
+].map(([v, l, c]) => `<div class="stat ${c}"><b>${v}</b><span>${l}</span></div>`).join("");
+
+const lowCtr = ROWS.filter(r => r.ctr != null && r.ctr < CTR_LINE).length;
+const lowCvr = ROWS.filter(r => r.cvr != null && r.cvr < CVR_LINE).length;
+const both = ROWS.filter(r => auxOf(r) === "双低").length;
+document.getElementById("auxstats").innerHTML = [
+  [String(lowCtr), "CTR 低于 7.21%", "warn"],
+  [String(lowCvr), "CVR 低于 7.62%", "danger"],
+  [String(both), "两项都低于线", "danger"]
+].map(([v, l, c]) => `<div class="stat ${c}"><b>${v}</b><span>${l}</span></div>`).join("");
+
+document.body.addEventListener("click", (event) => {
+  const btn = event.target.closest("button");
+  if (!btn) return;
+  if (btn.dataset.kind === "grade") grade = btn.dataset.id;
+  if (btn.dataset.kind === "aux") aux = btn.dataset.id;
+  render();
+});
+render();
+</script>
+</body>
+</html>
